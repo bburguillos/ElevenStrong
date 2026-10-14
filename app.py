@@ -8,7 +8,7 @@ from html import escape
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Sports by the Numbers | Soccer Manager 3", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Sports by the Numbers | Soccer Manager 4", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
 st.markdown('''<style>
 .block-container{max-width:1420px;padding-top:.65rem;padding-bottom:1rem}
 h1{font-size:1.7rem!important;margin-bottom:0!important}
@@ -42,9 +42,9 @@ def roster(club):
     return out
 
 def stats(): return dict(shots=0,goals=0,on_target=0,xg=0.,passes=0,passes_ok=0,tackles=0,tackles_ok=0,possessions=0,saves=0)
-def create_game(home,away,formation,tactic):
+def create_game(home,away,formation,tactic,math_mode):
     st.session_state.game=dict(clubs={"home":home,"away":away},players={"home":roster(home),"away":roster(away)},
-      formation=formation,tactic=tactic,minute=0,ball="home",zone=1,lane="Center",stats={"home":stats(),"away":stats()},
+      formation=formation,tactic=tactic,math_mode=math_mode,math_by_grade={5:{"correct":0,"total":0},6:{"correct":0,"total":0},7:{"correct":0,"total":0}},minute=0,ball="home",zone=1,lane="Center",stats={"home":stats(),"away":stats()},
       events=[],last="Kickoff! Study the defense and create your first attack.",finished=False,half=False,subs=0,choices=0,
       danger_lane=random.choice(LANES),keeper_bias=random.choice(LANES),animation=None,challenge=None,math_correct=0,math_total=0,math_times=[],math_last="")
     st.session_state.game["stats"]["home"]["possessions"]=1
@@ -202,44 +202,76 @@ MATH_LEVELS={
     "Shoot": ("Expert",10,.12,-.17),
 }
 
-def make_question(level):
-    if level=="Rookie":
-        op=random.choice(["+","-","×"])
-        if op=="+":
-            x,y=random.randint(3,25),random.randint(3,20);ans=x+y
-        elif op=="-":
-            x,y=sorted([random.randint(12,40),random.randint(2,12)],reverse=True);ans=x-y
-        else:
-            x,y=random.randint(2,9),random.randint(2,6);ans=x*y
-        return f"{x} {op} {y} = ?",ans
-    if level=="Intermediate":
-        op=random.choice(["×","÷","two-step"])
-        if op=="×":
-            x,y=random.randint(6,12),random.randint(5,12);return f"{x} × {y} = ?",x*y
-        if op=="÷":
-            x,y=random.randint(5,12),random.randint(3,12);return f"{x*y} ÷ {y} = ?",x
-        x,y,z=random.randint(3,12),random.randint(3,9),random.randint(4,25)
-        return f"({x} × {y}) + {z} = ?",x*y+z
-    op=random.choice(["two-step","division","percent","integers"])
-    if op=="two-step":
-        x,y,z=random.randint(7,15),random.randint(5,12),random.randint(11,29)
-        return f"({x} × {y}) − {z} = ?",x*y-z
-    if op=="division":
-        x,y,z=random.randint(7,18),random.randint(4,12),random.randint(3,17)
-        return f"({x*y} ÷ {y}) + {z} = ?",x+z
-    if op=="percent":
-        pct=random.choice([10,20,25,50]);total=random.choice([40,60,80,100,120,200])
-        return f"What is {pct}% of {total}?",pct*total//100
-    x,y=random.randint(-15,-3),random.randint(6,21)
-    return f"{x} + {y} = ?",x+y
+# NJSLS Mathematics (2023) aligned quick questions. The displayed codes identify
+# the mathematical skill being rehearsed; individual prompts are brief practice,
+# not complete assessments of their standards.
+MATH_MODES = ["Mixed review (5–7)", "Grade 5 review", "Grade 6 review", "Grade 7 focus"]
+
+def select_grade(mode):
+    if mode == "Grade 5 review": return 5
+    if mode == "Grade 6 review": return 6
+    if mode == "Grade 7 focus": return 7
+    return random.choices([5,6,7], weights=[30,35,35], k=1)[0]
+
+def make_question(grade, level):
+    """Returns prompt, numeric answer, standard, strand, explanatory solution."""
+    kind=random.choice(["a","b","c","d","e"])
+    if grade==5:
+        if kind=="a":
+            a,b,c=random.randint(3,12),random.randint(2,9),random.randint(2,6)
+            return f"A soccer drill has {a} groups of ({b} + {c}) cones. How many cones?",a*(b+c),"5.OA.A.1","Expressions",f"{a} × ({b} + {c}) = {a*(b+c)}"
+        if kind=="b":
+            a,b=random.randint(12,65),random.randint(10,35)
+            return f"A team runs {a/10:.1f} km in the morning and {b/10:.1f} km in the afternoon. Total km?",(a+b)/10,"5.NBT.B.7","Decimals",f"{a/10:.1f} + {b/10:.1f} = {(a+b)/10:.1f} km"
+        if kind=="c":
+            a,b=random.randint(2,8),random.randint(2,8)
+            return f"A practice zone is {a}/2 m long and {b} m wide. What is its area (m²)?",a*b/2,"5.NF.B.4b","Fractional area",f"({a}/2) × {b} = {a*b/2:g} m²"
+        if kind=="d":
+            a,b=random.randint(2,9),random.randint(2,9)
+            return f"Player A is at ({a}, {b}) on a coordinate grid. What is the x-coordinate?",a,"5.G.A.1","Coordinates",f"In (x, y), the first coordinate is x = {a}."
+        a,b=random.randint(2,7),random.choice([2,4,5,10]);value=a*b
+        return f"The goalie practices {value} minutes in {b} equal sessions. Minutes each?",a,"5.NBT.B.6","Division",f"{value} ÷ {b} = {a} minutes"
+    if grade==6:
+        if kind=="a":
+            goals,games=random.randint(2,8),random.randint(2,7)
+            return f"A forward scored {goals*games} goals in {games} games. Goals per game?",goals,"6.RP.A.2","Unit rates",f"{goals*games} ÷ {games} = {goals} goals per game"
+        if kind=="b":
+            attempts,made=random.choice([(10,7),(20,12),(20,17),(10,6),(25,15)])
+            return f"A player made {made} of {attempts} passes. What percent succeeded?",100*made/attempts,"6.RP.A.3","Percent review",f"{made} ÷ {attempts} × 100 = {100*made/attempts:g}%"
+        if kind=="c":
+            a,b=random.randint(2,15),random.randint(1,12)
+            return f"The temperature starts at −{a}°C and rises {b}°. What is the new temperature?",-a+b,"6.NS.C.5","Integers",f"−{a} + {b} = {-a+b}°C"
+        if kind=="d":
+            a,b=random.randint(2,8),random.randint(3,10)
+            return f"There are {a} rows of {b} seats in a stadium section. How many seats?",a*b,"6.EE.A.2","Expressions",f"{a} × {b} = {a*b}"
+        a,b=random.randint(4,15),random.randint(3,12)
+        return f"Two training sessions lasted {a} and {b} minutes. What's their mean duration?",(a+b)/2,"6.SP.B.5","Statistics",f"({a} + {b}) ÷ 2 = {(a+b)/2:g} minutes"
+    # Grade 7
+    if kind=="a":
+        made,attempts=random.choice([(9,12),(12,20),(14,20),(16,25),(18,30)])
+        return f"A winger completes {made} of {attempts} crosses. What percent succeed?",100*made/attempts,"7.RP.A.3","Proportions",f"{made}/{attempts} × 100 = {100*made/attempts:g}%"
+    if kind=="b":
+        a,b=random.randint(-14,-2),random.randint(4,16)
+        return f"A team gains {b} meters, then loses {abs(a)} meters. Net change (m)?",b+a,"7.NS.A.1","Rational numbers",f"{b} + ({a}) = {b+a} m"
+    if kind=="c":
+        x,k=random.randint(3,13),random.randint(2,7)
+        return f"A defender's rating satisfies x + {k} = {x+k}. What is x?",x,"7.EE.B.4","Equations",f"Subtract {k} from both sides: x = {x}"
+    if kind=="d":
+        a,b=random.randint(2,8),random.randint(2,7)
+        return f"A triangular training zone has base {a*2} m and height {b} m. What is its area (m²)?",a*b,"7.G.B.6","Geometry",f"½ × {a*2} × {b} = {a*b} m²"
+    goals,shots=random.choice([(3,10),(4,20),(7,20),(6,25),(9,30)])
+    return f"A striker scored on {goals} of {shots} attempts. Experimental probability as a percent?",100*goals/shots,"7.SP.C.6","Probability",f"{goals} ÷ {shots} × 100 = {100*goals/shots:g}%"
 
 def begin_challenge(action,lane,power):
     g=st.session_state.game
     if g["finished"] or g.get("challenge") is not None:return
     level,seconds,bonus,penalty=MATH_LEVELS[action]
-    question,answer=make_question(level)
+    grade=select_grade(g["math_mode"])
+    question,answer,standard,strand,solution=make_question(grade,level)
+    # Multi-step, conceptual content gets more time than basic arithmetic.
+    seconds += {5:7,6:14,7:20}[grade]
     g["challenge"]=dict(action=action,lane=lane,power=power,level=level,seconds=seconds,
-      bonus=bonus,penalty=penalty,question=question,answer=answer,started=time.time(),token=random.randint(100000,999999))
+      bonus=bonus,penalty=penalty,question=question,answer=answer,grade=grade,standard=standard,strand=strand,solution=solution,started=time.time(),token=random.randint(100000,999999))
 
 def submit_challenge(text):
     g=st.session_state.game
@@ -254,9 +286,12 @@ def submit_challenge(text):
     speed=clamp((c["seconds"]-elapsed)/c["seconds"],0,1)
     modifier=(c["bonus"]*(.65+.35*speed)) if won else c["penalty"]
     g["math_total"]+=1
+    g["math_by_grade"][c["grade"]]["total"]+=1
+    if won:g["math_by_grade"][c["grade"]]["correct"]+=1
     if won:g["math_correct"]+=1;g["math_times"].append(round(elapsed,1))
     outcome=(f"✅ Correct in {elapsed:.1f}s — success chance boosted by {modifier:+.1%}." if won else
              f"{'⌛ Time expired' if not within else '❌ Incorrect'} — correct answer: {c['answer']}. Chance adjusted by {modifier:+.1%}.")
+    outcome += f"  |  Grade {c['grade']} · {c['standard']} · {c['solution']}"
     g["math_last"]=outcome
     action,lane,power=c["action"],c["lane"],c["power"]
     g["challenge"]=None
@@ -344,8 +379,8 @@ def events_csv():
     w=csv.DictWriter(o,fieldnames=cols);w.writeheader();w.writerows(st.session_state.game["events"])
     return o.getvalue()
 
-st.title("⚽ SPORTS BY THE NUMBERS  |  SOCCER MANAGER 3")
-st.caption("Move the ball. Read the channels. Outsmart the goalkeeper. Make probability-based decisions.")
+st.title("⚽ SPORTS BY THE NUMBERS  |  SOCCER MANAGER 4")
+st.caption("Move the ball, outsmart the goalkeeper, and apply Grades 5–7 mathematics under match pressure.")
 if "game" not in st.session_state:
     st.markdown("### 🏟️ Set up your match")
     a,b,c,d=st.columns(4)
@@ -353,9 +388,10 @@ if "game" not in st.session_state:
     away=b.selectbox("Opponent",[x for x in NAMES if x!=home])
     formation=c.selectbox("Formation",["4-3-3","4-4-2","3-5-2"])
     tactic=d.selectbox("Tactic",TACTICS)
+    math_mode=st.selectbox("📚 Math curriculum",MATH_MODES,help="Mixed review combines Grades 5, 6, and 7. Riskier soccer plays still have less time and larger consequences.")
     st.info("Fictional player ratings for classroom play. The probabilities are modeled, not real-world measurements. The moving pitch is an animated tactical visualization, not a full physics engine.")
     if st.button("⚽ KICK OFF",type="primary",use_container_width=True):
-        create_game(home,away,formation,tactic);st.rerun()
+        create_game(home,away,formation,tactic,math_mode);st.rerun()
     st.stop()
 g=st.session_state.game
 h,a=g["stats"]["home"],g["stats"]["away"]
@@ -375,7 +411,8 @@ with left:
         st.success(f"🏁 FULL TIME — {g['clubs']['home']} {h['goals']}–{a['goals']} {g['clubs']['away']}")
     elif g.get("challenge"):
         c=g["challenge"]
-        st.markdown(f"### 🧠 {c['level'].upper()} CHALLENGE — {c['action']}")
+        st.markdown(f"### 🧠 GRADE {c['grade']} · {c['strand']} — {c['action']}")
+        st.caption(f"NJSLS-M {c['standard']} · Soccer risk: {c['level']} · Time limit: {c['seconds']} seconds")
         st.write(f"Complete the math fact to attempt **{c['action']}** down the **{c['lane']}** channel.")
         components.html(countdown_html(c["started"]+c["seconds"]),height=74,scrolling=False)
         with st.form(key=f"math_{c['token']}",clear_on_submit=False):
@@ -445,8 +482,11 @@ if g["finished"]:
     st.divider();st.subheader("🏆 POSTMATCH DATA LAB")
     st.write(f"Final: **{h['goals']}–{a['goals']}** | Expected goals: **{h['xg']:.2f}–{a['xg']:.2f}**")
     st.write(f"Math success: **{g['math_correct']}/{g['math_total']}** challenges. Average correct-response time: **{sum(g['math_times'])/len(g['math_times']):.1f}s**" if g["math_times"] else "No timed math challenges completed correctly.")
+    st.markdown("#### 📚 Grade-level review results")
+    for grade,results in g["math_by_grade"].items():
+        st.write(f"Grade {grade}: **{results['correct']}/{results['total']}** correct within the time limit")
     st.write(f"Your shooting conversion: **{pct(h['goals'],h['shots'])}** | Passing: **{pct(h['passes_ok'],h['passes'])}** | Defending: **{pct(h['tackles_ok'],h['tackles'])}**")
-    st.download_button("⬇️ Download all match events (CSV)",events_csv(),"soccer_manager_v2_events.csv",mime="text/csv")
+    st.download_button("⬇️ Download all match events (CSV)",events_csv(),"soccer_manager_v4_events.csv",mime="text/csv")
     with st.expander("Student reflection questions"):
         st.write("1. Did a lower-probability decision work out? Give evidence from the log.")
         st.write("2. How did shot aim, shot power, and shot location affect predicted xG?")
