@@ -5,20 +5,20 @@ import random
 from html import escape
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Sports by the Numbers | Soccer Manager", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
-
+st.set_page_config(page_title="Sports by the Numbers | Soccer Manager 2", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
 st.markdown('''<style>
-.block-container{padding-top:1rem;padding-bottom:1rem;max-width:1300px}
-h1{font-size:1.9rem!important;margin:0 0 .35rem!important}
-div.stButton>button{min-height:2.8rem;font-weight:650}
-[data-testid="stMetric"]{background:#122b29;border:1px solid #296353;border-radius:12px;padding:9px 13px}
-[data-testid="stMetricLabel"], [data-testid="stMetricValue"]{color:#f3fbf7!important}
-.mini{font-size:.88rem;color:#6b817a}.hint{padding:.75rem;border-radius:10px;background:#e9f5ef;color:#153d2e}
-.event{padding:.5rem .7rem;border-bottom:1px solid #d7e4df;font-size:.91rem}
+.block-container{max-width:1420px;padding-top:.65rem;padding-bottom:1rem}
+h1{font-size:1.7rem!important;margin-bottom:0!important}
+[data-testid="stMetric"]{background:#123c33;border:1px solid #27745d;border-radius:12px;padding:8px 12px}
+[data-testid="stMetricLabel"],[data-testid="stMetricValue"]{color:white!important}
+div.stButton>button{min-height:2.8rem;font-weight:700}
+.playbox{background:#10372c;border-radius:13px;color:#e6fff1;padding:.7rem 1rem;margin:.45rem 0}
+.scout{background:#e7f2ec;color:#163d30;border-radius:12px;padding:.65rem .85rem;margin:.4rem 0}
+.commentary{background:#142e3b;color:#f5fbff;border-left:4px solid #ffcb57;padding:.7rem .85rem;border-radius:8px;margin-top:.5rem}
 </style>''', unsafe_allow_html=True)
 
-# Fictional classroom ratings, not scraped or official real-world statistics.
 NAMES = {
     "Harbor City FC": ["M. Vega", "A. Okafor", "J. Park", "D. Silva", "E. Brooks", "K. Moreno", "L. Russo", "N. Price", "S. Diallo", "T. Chen", "R. Hayes", "I. Costa", "P. Reed", "F. Ibrahim"],
     "Mountain United": ["B. Novak", "O. Mensah", "C. Santos", "Y. Ito", "V. Morgan", "H. Rahman", "Z. Baker", "W. Cole", "G. Alvarez", "Q. Patel", "U. Fischer", "A. Wolfe", "D. Cruz", "M. Ali"],
@@ -26,373 +26,333 @@ NAMES = {
     "Metro Athletic": ["D. Knight", "A. Bell", "S. Romero", "K. Soto", "J. Silva", "P. Fox", "R. Mason", "Y. Idris", "O. Lane", "B. Cruz", "T. Wells", "M. King", "N. Ford", "F. Diaz"],
 }
 ROLES = ["GK", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "FWD", "FWD", "FWD", "DEF", "MID", "FWD"]
+LANES = ["Left", "Center", "Right"]
+TACTICS = ["Balanced", "Possession", "Attacking", "Pressing"]
 
-
+def clamp(v, lo, hi): return max(lo, min(hi, v))
 def roster(club):
-    players = []
-    seed = sum((i + 1) * ord(c) for i, c in enumerate(club))
-    rng = random.Random(seed)
-    for i, (name, role) in enumerate(zip(NAMES[club], ROLES)):
-        players.append({"id": f"{club}-{i}", "name": name, "role": role,
-                        "passing": rng.randint(66, 88) if role != "GK" else rng.randint(45, 64),
-                        "shooting": rng.randint(65, 88) if role == "FWD" else rng.randint(46, 71),
-                        "defense": rng.randint(65, 88) if role == "DEF" else rng.randint(38, 69),
-                        "keeping": rng.randint(72, 89) if role == "GK" else 0,
-                        "stamina": 100, "on": i < 11})
-    return players
+    rng = random.Random(sum((i+1)*ord(c) for i,c in enumerate(club)))
+    out=[]
+    for i,(name,role) in enumerate(zip(NAMES[club],ROLES)):
+        out.append(dict(id=f"{club}-{i}",name=name,role=role,passing=rng.randint(67,91) if role!="GK" else 51,
+                        shooting=rng.randint(71,91) if role=="FWD" else rng.randint(43,69),
+                        defense=rng.randint(67,91) if role=="DEF" else rng.randint(42,73),
+                        keeping=rng.randint(72,90) if role=="GK" else 0,stamina=100.,on=i<11))
+    return out
 
+def stats(): return dict(shots=0,goals=0,on_target=0,xg=0.,passes=0,passes_ok=0,tackles=0,tackles_ok=0,possessions=0,saves=0)
+def create_game(home,away,formation,tactic):
+    st.session_state.game=dict(clubs={"home":home,"away":away},players={"home":roster(home),"away":roster(away)},
+      formation=formation,tactic=tactic,minute=0,ball="home",zone=1,lane="Center",stats={"home":stats(),"away":stats()},
+      events=[],last="Kickoff! Study the defense and create your first attack.",finished=False,half=False,subs=0,choices=0,
+      danger_lane=random.choice(LANES),keeper_bias=random.choice(LANES),animation=None)
+    st.session_state.game["stats"]["home"]["possessions"]=1
 
-def cap(v, lo, hi):
-    return max(lo, min(hi, v))
+def active(side): return [p for p in st.session_state.game["players"][side] if p["on"]]
+def avg(side,field,role=None):
+    a=[p for p in active(side) if role is None or p["role"]==role]
+    return sum(p[field]*(0.55+0.45*p["stamina"]/100) for p in a)/len(a) if a else 70
 
+def log(msg,action="",outcome="",prob=None,xg=0,team="home"):
+    g=st.session_state.game
+    g["last"]=msg
+    g["events"].append(dict(minute=g["minute"],team=g["clubs"][team],action=action,outcome=outcome,
+      probability=round(prob*100,1) if prob is not None else "",xG=round(xg,3),commentary=msg))
 
-def team_players(side, active=True):
-    players = st.session_state.game["players"][side]
-    return [p for p in players if p["on"]] if active else [p for p in players if not p["on"]]
+def turnover(side,zone=1):
+    g=st.session_state.game; g["ball"]=side;g["zone"]=zone
+    g["stats"][side]["possessions"]+=1
+    g["danger_lane"]=random.choice(LANES)
 
+def pass_chance(action,lane):
+    g=st.session_state.game
+    base={"Safe pass":.83,"Through ball":.57,"Cross":.49}[action]
+    skill=(avg("home","passing","MID")-75)*.006
+    opponent=(avg("away","defense","DEF")-75)*.004
+    guard=(.14 if lane==g["danger_lane"] else -.045)
+    tactic={"Balanced":0,"Possession":.055 if action=="Safe pass" else .005,"Attacking":.045 if action!="Safe pass" else -.015,"Pressing":-.025}[g["tactic"]]
+    return clamp(base+skill-opponent-guard+tactic, .18,.96)
 
-def average(side, attr, role=None):
-    group = [p for p in team_players(side) if role is None or p["role"] == role]
-    return sum(p[attr] * (.55 + .45 * p["stamina"] / 100) for p in group) / len(group) if group else 65
+def shot_chance(lane,power):
+    g=st.session_state.game
+    # Shot power is a tactical trade-off. Ideal power varies by shooting distance.
+    ideal={1:90,2:77,3:61}[g["zone"]]
+    err=abs(power-ideal)
+    raw={1:.045,2:.15,3:.34}[g["zone"]]
+    rating=(avg("home","shooting","FWD")-75)*.005
+    keeper=(avg("away","keeping","GK")-78)*.003
+    read= .075 if lane!=g["keeper_bias"] else -.09
+    coverage=-.055 if lane==g["danger_lane"] else .025
+    penalty=err*.0034
+    tactic=.017 if g["tactic"]=="Attacking" else 0
+    return clamp(raw+rating-keeper+read+coverage-penalty+tactic,.012,.68),ideal
 
+def defensive_chance(action,lane):
+    g=st.session_state.game
+    base={"Press":.48,"Contain":.63,"Counter trap":.4}[action]
+    skill=(avg("home","defense","DEF")-75)*.005-(avg("away","passing","MID")-75)*.004
+    correct=.15 if lane==g["danger_lane"] else -.10
+    fatigue=.04 if g["tactic"]=="Pressing" and action=="Press" else 0
+    return clamp(base+skill+correct+fatigue,.16,.86)
 
-def select_player(side, preferred):
-    group = [p for p in team_players(side) if p["role"] == preferred]
-    if not group:
-        group = [p for p in team_players(side) if p["role"] != "GK"]
-    return random.choice(group)
+def elapse():
+    g=st.session_state.game
+    g["minute"]=min(90,g["minute"]+random.randint(2,4))
+    for side in ("home","away"):
+        for p in active(side):
+            drain=random.uniform(1.2,2.8)*(1.3 if side=="home" and g["tactic"]=="Pressing" else 1)
+            p["stamina"]=round(max(18,p["stamina"]-drain),1)
+    if g["minute"]>=45 and not g["half"]:
+        g["half"]=True
+        log("⏸️ HALFTIME reached. Use the statistical report to reconsider your strategy.","Halftime","Break")
+    if g["minute"]>=90:
+        g["finished"]=True
+        log("🏁 FULL TIME! Compare expected and actual performance below.","Final whistle","Complete")
 
+def trajectory(old_side,old_zone,old_lane,new_side,new_zone,new_lane,result):
+    st.session_state.game["animation"]=dict(before=[old_side,old_zone,old_lane],after=[new_side,new_zone,new_lane],result=result,
+        seed=random.randint(1000,999999))
 
-def log_event(desc, side="neutral", action="", outcome="", probability=None, xg=0):
-    g = st.session_state.game
-    g["events"].append({"minute": g["minute"], "team": g["clubs"].get(side, "—"),
-                        "action": action, "outcome": outcome, "probability": round(probability * 100, 1) if probability is not None else "",
-                        "xG": round(xg, 3), "commentary": desc})
-    g["last"] = desc
-
-
-def stats_zero():
-    return {"shots": 0, "on_target": 0, "goals": 0, "xg": 0.0, "pass_att": 0, "pass_ok": 0,
-            "tackles": 0, "tackles_ok": 0, "possessions": 0, "saves": 0}
-
-
-def new_game(club, opponent, shape, tactic):
-    st.session_state.game = {
-        "clubs": {"home": club, "away": opponent}, "players": {"home": roster(club), "away": roster(opponent)},
-        "formation": shape, "tactic": tactic, "minute": 0, "phase": "attack", "zone": 1,
-        "ball": "home", "stats": {"home": stats_zero(), "away": stats_zero()}, "events": [],
-        "last": "Kickoff! Read the scouting report, then choose a play.", "sub_count": 0, "finished": False,
-        "half_reported": False, "choices": 0,
-    }
-    st.session_state.game["stats"]["home"]["possessions"] = 1
-
-
-def probability(action):
-    g = st.session_state.game
-    attacking = g["ball"] == "home"
-    if attacking:
-        passer = average("home", "passing", "MID")
-        defense = average("away", "defense", "DEF")
-        zone = g["zone"]
-        tactic = g["tactic"]
-        if action == "Safe pass":
-            return cap(.78 + (passer - 75) * .006 - (defense - 75) * .003 + (.05 if tactic == "Possession" else 0), .55, .94)
-        if action == "Through ball":
-            return cap(.53 + (passer - 75) * .006 - (defense - 75) * .004 + (.06 if tactic == "Attacking" else 0), .32, .78)
-        if action == "Cross":
-            return cap(.43 + (passer - 75) * .004 - (defense - 75) * .003 + (.04 if tactic == "Attacking" else 0), .25, .65)
-        if action == "Shoot":
-            xg = {1: .035, 2: .105, 3: .24}[zone]
-            shooter = average("home", "shooting", "FWD")
-            keeper = average("away", "keeping", "GK")
-            return cap(xg * (1 + (shooter - 75) / 160 - (keeper - 78) / 210), .015, .47)
+def shoot(side,chance,source,lane):
+    g=st.session_state.game
+    team=g["stats"][side];opp="away" if side=="home" else "home"
+    team["shots"]+=1;team["xg"]+=chance
+    shooter=random.choice([p for p in active(side) if p["role"]=="FWD"])
+    scored=random.random()<chance
+    if scored:
+        team["goals"]+=1;team["on_target"]+=1
+        log(f"⚽ GOAL! {shooter['name']} finds the {lane.lower()} side of the net! Shot chance {chance:.0%}.",source,"Goal",chance,chance,side)
     else:
-        defense = average("home", "defense", "DEF")
-        attack = average("away", "passing", "MID")
-        if action == "Press":
-            return cap(.48 + (defense - 75) * .005 - (attack - 75) * .004 + (.06 if g["tactic"] == "Pressing" else 0), .28, .71)
-        if action == "Contain":
-            return cap(.64 + (defense - 75) * .004 - (attack - 75) * .003, .44, .82)
-        if action == "Counter trap":
-            return cap(.39 + (defense - 75) * .005 - (attack - 75) * .004, .22, .61)
-    return .5
+        target=random.random()<.63
+        if target:
+            team["on_target"]+=1;g["stats"][opp]["saves"]+=1
+        log(f"🥅 {shooter['name']} shoots toward {lane.lower()} — {'saved by the goalkeeper' if target else 'off target'}! ({chance:.0%} chance)",source,"Saved" if target else "Missed",chance,chance,side)
+    turnover(opp,1)
+    return "goal" if scored else "shot"
 
-
-def advance_clock():
-    g = st.session_state.game
-    g["minute"] = min(90, g["minute"] + random.choice([3, 4, 5, 6]))
-    for side in ("home", "away"):
-        for p in team_players(side):
-            loss = random.uniform(1.1, 2.8) * (1.15 if g["tactic"] == "Pressing" and side == "home" else 1)
-            p["stamina"] = max(20, round(p["stamina"] - loss, 1))
-    if g["minute"] >= 45 and not g["half_reported"]:
-        g["half_reported"] = True
-        log_event("⏸️ Halfway through the match. Consider changing tactics or using your bench.")
-    if g["minute"] >= 90:
-        g["finished"] = True
-        log_event("🏁 Full time! Open the report to examine the decisions and outcomes.")
-
-
-def switch_ball(side, zone=1):
-    g = st.session_state.game
-    g["ball"] = side
-    g["zone"] = zone
-    g["phase"] = "attack" if side == "home" else "defend"
-    g["stats"][side]["possessions"] += 1
-
-
-def make_shot(side, xg, source):
-    g = st.session_state.game
-    stats = g["stats"][side]
-    stats["shots"] += 1
-    stats["xg"] += xg
-    scorer = select_player(side, "FWD")
-    # A goal is a Bernoulli trial with the displayed xG probability.
-    goal = random.random() < xg
-    if goal:
-        stats["goals"] += 1
-        stats["on_target"] += 1
-        log_event(f"⚽ GOAL! {scorer['name']} scores for {g['clubs'][side]} ({source}; xG {xg:.2f}).", side, source, "Goal", xg, xg)
+def computer_turn():
+    g=st.session_state.game
+    if g["ball"]!="away":return "pass"
+    diff=g["stats"]["away"]["goals"]-g["stats"]["home"]["goals"]
+    eagerness=.12+g["zone"]*.095+(.09 if diff<0 else -.055 if diff>0 else 0)
+    if random.random()<eagerness:
+        chance=clamp({1:.04,2:.12,3:.27}[g["zone"]]+(avg("away","shooting","FWD")-75)*.003,
+                    .018,.43)
+        return shoot("away",chance,"Opponent shot",g["danger_lane"])
+    chance=clamp(.7+(avg("away","passing","MID")-75)*.004-(avg("home","defense","DEF")-75)*.003,.48,.87)
+    g["stats"]["away"]["passes"]+=1
+    if random.random()<chance:
+        g["stats"]["away"]["passes_ok"]+=1
+        g["zone"]=min(3,g["zone"]+1)
+        log(f"Opposition completes a pass through the {g['danger_lane'].lower()} channel.","Opponent pass","Completed",chance,team="away")
     else:
-        on_target = random.random() < .56
-        if on_target:
-            stats["on_target"] += 1
-            g["stats"]["away" if side == "home" else "home"]["saves"] += 1
-        log_event(f"🥅 {scorer['name']} shoots ({source}, xG {xg:.2f}) — {'saved!' if on_target else 'wide!'}", side, source, "Saved" if on_target else "Missed", xg, xg)
-    switch_ball("away" if side == "home" else "home", 1)
+        log("Your defense intercepts an opposition pass!","Opponent pass","Intercepted",chance,team="away")
+        turnover("home",1)
+    return "pass"
 
-
-def computer_attack():
-    g = st.session_state.game
-    if g["finished"]:
-        return
-    if g["ball"] == "home":
-        return
-    risk = random.random()
-    # Opponent adapts: trails -> attacks more; leads -> protects possession.
-    goal_diff = g["stats"]["away"]["goals"] - g["stats"]["home"]["goals"]
-    danger = cap(.18 + .07 * g["zone"] + (-.06 if goal_diff > 0 else .06 if goal_diff < 0 else 0), .1, .48)
-    if risk < danger:
-        xg = cap({1: .035, 2: .10, 3: .22}[g["zone"]] * (average("away", "shooting", "FWD") / 75), .02, .37)
-        make_shot("away", xg, "Opposition shot")
-    else:
-        prob = cap(.66 + (average("away", "passing", "MID") - 75) * .004 - (average("home", "defense", "DEF") - 75) * .003, .46, .83)
-        g["stats"]["away"]["pass_att"] += 1
-        if random.random() < prob:
-            g["stats"]["away"]["pass_ok"] += 1
-            g["zone"] = min(3, g["zone"] + 1)
-            log_event("The opposition completes a pass and pushes into a more dangerous area.", "away", "Pass", "Complete", prob)
+def act(action,lane,power):
+    g=st.session_state.game
+    if g["finished"]:return
+    old=(g["ball"],g["zone"],g["lane"])
+    g["choices"]+=1
+    result="pass"
+    if g["ball"]=="home":
+        if action=="Shoot":
+            chance,_=shot_chance(lane,power)
+            result=shoot("home",chance,"Shot",lane)
         else:
-            log_event("Opposition pass intercepted! Your team wins possession.", "away", "Pass", "Intercepted", prob)
-            switch_ball("home", 1)
-
-
-def play(action):
-    g = st.session_state.game
-    if g["finished"]:
-        return
-    prob = probability(action)
-    g["choices"] += 1
-    if g["ball"] == "home":
-        if action == "Shoot":
-            make_shot("home", prob, "Student-selected shot")
-        else:
-            g["stats"]["home"]["pass_att"] += 1
-            if random.random() < prob:
-                g["stats"]["home"]["pass_ok"] += 1
-                zone_advance = 2 if action == "Through ball" and random.random() < .30 else 1
-                g["zone"] = min(3, g["zone"] + zone_advance)
-                log_event(f"✅ {action} succeeds. Your team advances into zone {g['zone']}.", "home", action, "Complete", prob)
+            chance=pass_chance(action,lane)
+            g["stats"]["home"]["passes"]+=1
+            if random.random()<chance:
+                g["stats"]["home"]["passes_ok"]+=1
+                g["zone"]=min(3,g["zone"]+(2 if action=="Through ball" and random.random()<.42 else 1))
+                g["lane"]=lane
+                log(f"✅ {action} through the {lane.lower()} channel! Now in attacking zone {g['zone']}.",action,"Completed",chance)
             else:
-                log_event(f"❌ {action} fails. The opposition recovers the ball.", "home", action, "Lost possession", prob)
-                switch_ball("away", 1)
+                log(f"❌ {action} intercepted in the {lane.lower()} channel. Your opponent counters!",action,"Lost ball",chance)
+                turnover("away",1)
+                computer_turn()
+                result="turnover"
     else:
-        g["stats"]["home"]["tackles"] += 1
-        if random.random() < prob:
-            g["stats"]["home"]["tackles_ok"] += 1
-            log_event(f"🛡️ {action} works! Your team wins the ball.", "home", action, "Won possession", prob)
-            switch_ball("home", 2 if action == "Counter trap" else 1)
+        chance=defensive_chance(action,lane)
+        g["stats"]["home"]["tackles"]+=1
+        if random.random()<chance:
+            g["stats"]["home"]["tackles_ok"]+=1
+            log(f"🛡️ Successful {action.lower()} on the {lane.lower()} side! You win the ball.",action,"Won ball",chance)
+            turnover("home",2 if action=="Counter trap" else 1)
+            result="intercept"
         else:
-            if action == "Press":
-                g["zone"] = min(3, g["zone"] + 1)
-            elif action == "Contain":
-                g["zone"] = max(1, g["zone"] - 1)
-            else:
-                g["zone"] = min(3, g["zone"] + 1)
-            log_event(f"The {action.lower()} attempt doesn't regain possession.", "home", action, "Failed", prob)
-    if g["ball"] == "away":
-        computer_attack()
-    advance_clock()
+            g["zone"]=clamp(g["zone"]+(1 if action!="Contain" else -1),1,3)
+            log(f"The {action.lower()} fails in the {lane.lower()} channel.",action,"Failed",chance)
+            result=computer_turn()
+    elapse()
+    trajectory(*old,g["ball"],g["zone"],g["lane"],result)
+    g["keeper_bias"]=random.choices(LANES,weights=[4,3,4],k=1)[0]
 
-
-def make_sub(off_id, on_id):
-    g = st.session_state.game
-    if g["finished"] or g["sub_count"] >= 5:
-        return False
-    old = next((p for p in g["players"]["home"] if p["id"] == off_id and p["on"]), None)
-    new = next((p for p in g["players"]["home"] if p["id"] == on_id and not p["on"]), None)
-    if not old or not new or old["role"] == "GK" or new["role"] == "GK":
-        return False
-    old["on"], new["on"] = False, True
-    g["sub_count"] += 1
-    log_event(f"🔁 Substitution: {new['name']} replaces {old['name']} ({g['sub_count']}/5).", "home", "Substitution", "Completed")
+def substitute(off_id,on_id):
+    g=st.session_state.game
+    if g["finished"] or g["subs"]>=3:return False
+    off=next((p for p in active("home") if p["id"]==off_id and p["role"]!="GK"),None)
+    on=next((p for p in g["players"]["home"] if p["id"]==on_id and not p["on"] and p["role"]!="GK"),None)
+    if not off or not on:return False
+    off["on"]=False;on["on"]=True;g["subs"]+=1
+    log(f"🔁 {on['name']} replaces {off['name']}. Fresh legs enter the match!","Substitution","Completed")
     return True
 
+def football_svg(x,y):
+    return f'''<g transform="translate({x} {y})"><circle r="11" fill="#fff" stroke="#0e1721" stroke-width="2.5"/><path d="M0,-5 L5,-2 L3,5 L-3,5 L-5,-2Z" fill="#111923"/><path d="M-5,-2 L-9,-6 M5,-2 L9,-6 M-3,5 L-7,9 M3,5 L7,9" stroke="#111923" stroke-width="1.8"/></g>'''
 
-def pitch():
-    g = st.session_state.game
-    # Self-contained SVG pitch; no local image assets required.
-    H, W = 280, 660
-    lines = ['<svg viewBox="0 0 660 280" width="100%" style="display:block;border-radius:12px;background:#187148">',
-             '<rect width="660" height="280" fill="#187148"/>']
-    for i in range(11):
-        if i % 2 == 0:
-            lines.append(f'<rect x="{i*60}" width="60" height="280" fill="#ffffff" opacity=".045"/>')
-    lines += ['<rect x="18" y="18" width="624" height="244" fill="none" stroke="white" stroke-width="2"/>',
-              '<line x1="330" y1="18" x2="330" y2="262" stroke="white" stroke-width="2"/>',
-              '<circle cx="330" cy="140" r="42" fill="none" stroke="white" stroke-width="2"/>',
-              '<rect x="18" y="68" width="94" height="144" fill="none" stroke="white" stroke-width="2"/>',
-              '<rect x="548" y="68" width="94" height="144" fill="none" stroke="white" stroke-width="2"/>',
-              '<rect x="8" y="111" width="10" height="58" fill="none" stroke="white" stroke-width="2"/>',
-              '<rect x="642" y="111" width="10" height="58" fill="none" stroke="white" stroke-width="2"/>']
-    # Abstract positional markers (not tracking an actual 22-player physics match).
-    home_positions = [(56,140),(160,40),(160,104),(160,175),(160,240),(280,70),(280,140),(280,208),(430,55),(465,140),(430,225)]
-    away_positions = [(608,140),(500,40),(500,104),(500,175),(500,240),(385,70),(385,140),(385,208),(235,55),(205,140),(235,225)]
-    for side, poses, fill in [("home", home_positions, "#f8cf51"), ("away", away_positions, "#e5f4ff")]:
-        for j, (x,y) in enumerate(poses):
-            lines.append(f'<circle cx="{x}" cy="{y}" r="8.5" fill="{fill}" stroke="#17362b" stroke-width="1.8"/>')
-    if g["ball"] == "home":
-        x = {1:270, 2:420, 3:540}[g["zone"]]
-    else:
-        x = {1:390, 2:235, 3:125}[g["zone"]]
-    lines.append(f'<circle cx="{x}" cy="140" r="7.2" fill="white" stroke="#111" stroke-width="2"/><text x="{x+14}" y="126" fill="white" font-size="13" font-family="sans-serif" font-weight="bold">BALL</text>')
-    lines.append('</svg>')
-    return ''.join(lines)
+def pitch_html():
+    g=st.session_state.game
+    old=(g.get("animation") or {}).get("before",[g["ball"],g["zone"],g["lane"]])
+    new=(g.get("animation") or {}).get("after",[g["ball"],g["zone"],g["lane"]])
+    seed=(g.get("animation") or {}).get("seed",0)
+    def ballpos(info):
+        side,zone,lane=info
+        x=({1:300,2:490,3:640} if side=="home" else {1:650,2:455,3:255})[zone]
+        y={"Left":117,"Center":210,"Right":303}.get(lane,210)
+        return x,y
+    x0,y0=ballpos(old); x1,y1=ballpos(new)
+    # Dynamic formations: markers shift to where play happens, with coordinated run animation on each new decision.
+    shift=(g["zone"]-1)*25*(1 if g["ball"]=="home" else -1)
+    homepos=[(65,210),(176,68),(175,161),(175,255),(176,346),(340,100),(325,210),(340,319),(490,95),(518,209),(490,321)]
+    awaypos=[(895,210),(780,68),(780,161),(780,255),(780,346),(632,100),(650,210),(632,319),(470,95),(443,209),(470,321)]
+    svg=['''<svg viewBox="0 0 960 420" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Animated soccer match with moving players and ball">
+    <defs><linearGradient id="turf" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#19754b"/><stop offset="1" stop-color="#146842"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".45"/></filter></defs>
+    <rect width="960" height="420" fill="url(#turf)"/>''']
+    for i in range(12):
+        if i%2==0:svg.append(f'<rect x="{i*80}" y="0" width="80" height="420" fill="white" opacity=".035"/>')
+    svg+=['''<rect x="30" y="25" width="900" height="370" fill="none" stroke="#dceede" stroke-width="2.5"/>
+    <line x1="480" x2="480" y1="25" y2="395" stroke="white" stroke-width="2" opacity=".8"/>
+    <circle cx="480" cy="210" r="63" fill="none" stroke="white" stroke-width="2" opacity=".8"/>
+    <circle cx="480" cy="210" r="3" fill="white"/>
+    <rect x="30" y="106" width="138" height="208" fill="none" stroke="white" stroke-width="2"/>
+    <rect x="792" y="106" width="138" height="208" fill="none" stroke="white" stroke-width="2"/>
+    <rect x="30" y="160" width="51" height="100" fill="none" stroke="white" stroke-width="2"/>
+    <rect x="879" y="160" width="51" height="100" fill="none" stroke="white" stroke-width="2"/>
+    <rect x="14" y="173" width="16" height="75" rx="2" fill="#e8f5ff" fill-opacity=".42" stroke="white" stroke-width="3"/>
+    <rect x="930" y="173" width="16" height="75" rx="2" fill="#e8f5ff" fill-opacity=".42" stroke="white" stroke-width="3"/>''']
+    # Animate runners by a slight run-in from prior positions; each action induces a new animation.
+    for side,poses,color in [("home",homepos,"#ffcb47"),("away",awaypos,"#d6eaff")]:
+        for j,(x,y) in enumerate(poses):
+            delta=shift*(1 if side=="home" else .6)
+            x=clamp(x+delta,43,916)
+            # movement affects midfield / forwards most; keep GK close to its own goal
+            if j==0:x=65 if side=="home" else 895
+            lane_delta={"Left":-15,"Center":0,"Right":15}[g["lane"]] if j>4 else 0
+            y=clamp(y+lane_delta,40,379)
+            dx=(-18 if side=="home" else 18)*(0 if j==0 else 1)
+            dy=(7 if j%2 else -7) if j else 0
+            svg.append(f'''<g filter="url(#shadow)" transform="translate({x:.1f} {y:.1f})">
+             <animateTransform attributeName="transform" type="translate" from="{x+dx:.1f} {y+dy:.1f}" to="{x:.1f} {y:.1f}" dur=".9s" fill="freeze" begin=".05s"/>
+             <circle r="14.5" fill="{color}" stroke="#132c2c" stroke-width="3"/>
+             <text text-anchor="middle" dominant-baseline="central" font-family="Arial" font-weight="bold" font-size="12" fill="#152c2b">{j+1}</text></g>''')
+    svg.append(f'''<g filter="url(#shadow)">{football_svg(0,0)}
+      <animateTransform attributeName="transform" type="translate" from="{x0} {y0}" to="{x1} {y1}" dur="1.1s" fill="freeze" begin=".2s"/>
+      </g>''')
+    # football_svg uses its own nested transform (0,0); ball is always independently visible.
+    svg.append(f'''<text x="480" y="18" text-anchor="middle" fill="#e7ffe9" font-weight="bold" font-family="Arial" font-size="15">{escape(g['clubs']['home'])}  •  ATTACK →</text>''')
+    svg.append('</svg>')
+    return '''<!doctype html><html><body style="margin:0;background:#103b2d"><div style="width:100%;overflow:hidden">'''+''.join(svg)+'''</div></body></html>'''
 
+def pct(a,b): return f"{100*a/b:.1f}%" if b else "—"
+def events_csv():
+    o=io.StringIO();cols=["minute","team","action","outcome","probability","xG","commentary"]
+    w=csv.DictWriter(o,fieldnames=cols);w.writeheader();w.writerows(st.session_state.game["events"])
+    return o.getvalue()
 
-def percent(a, b):
-    return f"{a / b * 100:.1f}%" if b else "—"
-
-
-def csv_log(events):
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=["minute", "team", "action", "outcome", "probability", "xG", "commentary"])
-    writer.writeheader()
-    writer.writerows(events)
-    return output.getvalue()
-
-
-st.title("⚽ SPORTS BY THE NUMBERS  |  SOCCER MANAGER")
-st.caption("Your tactics. Your data. Your decisions. Every chance is a probability, never a guarantee.")
-
+st.title("⚽ SPORTS BY THE NUMBERS  |  SOCCER MANAGER 2")
+st.caption("Move the ball. Read the channels. Outsmart the goalkeeper. Make probability-based decisions.")
 if "game" not in st.session_state:
-    st.subheader("Set up your match")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        club = st.selectbox("Your team", list(NAMES))
-    with col2:
-        opponent = st.selectbox("Opponent", [t for t in NAMES if t != club])
-    with col3:
-        shape = st.selectbox("Formation", ["4-3-3", "4-4-2", "3-5-2"])
-    with col4:
-        tactic = st.selectbox("Tactic", ["Balanced", "Possession", "Attacking", "Pressing"])
-    st.info("🎓 These club names and player ratings are fictional. Pass %, shot xG, and tackle % are estimated by the game's formula; track what actually happens and compare it to expectations.")
-    st.markdown("**Before kickoff:** Balanced is versatile; Possession improves safer passes; Attacking helps through balls and crosses; Pressing helps win tackles but drains stamina faster.")
-    if st.button("🏟️ START MATCH", type="primary", use_container_width=True):
-        new_game(club, opponent, shape, tactic)
-        st.rerun()
+    st.markdown("### 🏟️ Set up your match")
+    a,b,c,d=st.columns(4)
+    home=a.selectbox("Your club",list(NAMES))
+    away=b.selectbox("Opponent",[x for x in NAMES if x!=home])
+    formation=c.selectbox("Formation",["4-3-3","4-4-2","3-5-2"])
+    tactic=d.selectbox("Tactic",TACTICS)
+    st.info("Fictional player ratings for classroom play. The probabilities are modeled, not real-world measurements. The moving pitch is an animated tactical visualization, not a full physics engine.")
+    if st.button("⚽ KICK OFF",type="primary",use_container_width=True):
+        create_game(home,away,formation,tactic);st.rerun()
     st.stop()
-
-g = st.session_state.game
-h, a = g["stats"]["home"], g["stats"]["away"]
-header = st.columns([2,1,2,1])
-header[0].markdown(f"### 🟡 {g['clubs']['home']}")
-header[1].metric("SCORE", f"{h['goals']} – {a['goals']}")
-header[2].markdown(f"### ⚪ {g['clubs']['away']}")
-header[3].metric("MINUTE", f"{g['minute']}'")
-
-left, right = st.columns([1.6, 1], gap="large")
+g=st.session_state.game
+h,a=g["stats"]["home"],g["stats"]["away"]
+top=st.columns([2,1.3,2,1])
+top[0].markdown(f"### 🟡 {g['clubs']['home']}")
+top[1].metric("SCORE",f"{h['goals']} – {a['goals']}")
+top[2].markdown(f"### ⚪ {g['clubs']['away']}")
+top[3].metric("TIME",f"{g['minute']}'")
+left,right=st.columns([1.85,1],gap="large")
 with left:
-    st.markdown(pitch(), unsafe_allow_html=True)
-    st.caption("Schematic pitch, not player-motion tracking. 🟡 You attack right; ⚪ the computer attacks left.")
+    components.html(pitch_html(),height=355,scrolling=False)
+    st.caption("Players run to new positions after each decision. Numbered yellow/white markers are players; the black-and-white football is the ball. You attack right.")
     if g["finished"]:
         st.success(f"🏁 FULL TIME — {g['clubs']['home']} {h['goals']}–{a['goals']} {g['clubs']['away']}")
     else:
-        if g["ball"] == "home":
-            st.markdown(f"**🟡 YOUR BALL · Zone {g['zone']}/3 · Choose a play**")
-            options = ["Safe pass", "Through ball", "Cross", "Shoot"]
+        if g["ball"]=="home":
+            st.markdown(f"<div class='playbox'><b>🟡 IN POSSESSION</b> • Zone {g['zone']}/3 • Ball in the {g['lane']} channel</div>",unsafe_allow_html=True)
+            st.markdown(f"<div class='scout'>🔎 <b>Scouting:</b> Opponent's strongest defensive coverage: <b>{g['danger_lane']}</b>. Goalkeeper tends to protect: <b>{g['keeper_bias']}</b>. Choose where to attack.</div>",unsafe_allow_html=True)
+            lane=st.radio("Attack down which channel?",LANES,index=LANES.index(g["lane"]),horizontal=True)
+            power=st.slider("Shot power (aim for the sweet spot for this distance)",35,100,70,5)
+            desired={1:90,2:77,3:61}[g["zone"]]
+            st.caption(f"Coaching clue: From zone {g['zone']}, around **{desired}% power** provides the best accuracy. Different aim and power decisions change shot xG.")
+            options=["Safe pass","Through ball","Cross","Shoot"]
+            probs={o:(shot_chance(lane,power)[0] if o=="Shoot" else pass_chance(o,lane)) for o in options}
+            cols=st.columns(4)
+            for i,o in enumerate(options):
+                if cols[i].button(f"{o} · {probs[o]:.0%}",key="play_"+o,type="primary" if o=="Shoot" else "secondary",use_container_width=True):
+                    act(o,lane,power);st.rerun()
         else:
-            st.markdown(f"**⚪ OPPONENT BALL · Danger zone {g['zone']}/3 · Defend!**")
-            options = ["Press", "Contain", "Counter trap"]
-        probs = {o: probability(o) for o in options}
-        st.caption("Coach's scouting report: probability of the stated outcome. For a shot, the percentage is the chance of a goal (xG). Passing and defending percentages measure success of that specific action.")
-        buttons = st.columns(len(options))
-        for j, option in enumerate(options):
-            if buttons[j].button(f"{option}\n{probs[option]:.0%}", key=f"act_{option}", use_container_width=True, type="primary" if option == "Shoot" else "secondary"):
-                play(option)
-                st.rerun()
-    st.markdown(f"<div class='hint'><b>🎙️ Live commentary:</b> {escape(g['last'])}</div>", unsafe_allow_html=True)
-    with st.expander("📻 Match play-by-play", expanded=False):
-        if not g["events"]:
-            st.write("No events yet. Make the first decision.")
-        for e in reversed(g["events"][-18:]):
-            st.markdown(f"<div class='event'><b>{e['minute']}'</b> — {escape(e['commentary'])}</div>", unsafe_allow_html=True)
-
+            st.markdown(f"<div class='playbox'><b>⚪ DEFEND!</b> • Opposition danger zone {g['zone']}/3</div>",unsafe_allow_html=True)
+            st.markdown(f"<div class='scout'>📋 <b>Analyst warning:</b> Their most likely attacking channel is <b>{g['danger_lane']}</b>. Anticipate the passing lane and choose your defensive approach.</div>",unsafe_allow_html=True)
+            lane=st.radio("Cover which channel?",LANES,index=LANES.index(g["danger_lane"]),horizontal=True)
+            options=["Press","Contain","Counter trap"]
+            cols=st.columns(3)
+            for i,o in enumerate(options):
+                p=defensive_chance(o,lane)
+                if cols[i].button(f"{o} · {p:.0%}",key="def_"+o,use_container_width=True):
+                    act(o,lane,70);st.rerun()
+    st.markdown(f"<div class='commentary'><b>🎙️ MATCH CALL:</b> {escape(g['last'])}</div>",unsafe_allow_html=True)
+    with st.expander("📻 Play-by-play",expanded=False):
+        for e in reversed(g["events"][-20:]):st.write(f"{e['minute']}' • {e['commentary']}")
 with right:
-    st.markdown("#### 📊 LIVE MATCH DATA")
-    stat_rows = [
-        ("Shots", h["shots"], a["shots"]),
-        ("Shots on target", h["on_target"], a["on_target"]),
-        ("Expected goals (xG)", f"{h['xg']:.2f}", f"{a['xg']:.2f}"),
-        ("Pass completion", percent(h["pass_ok"], h["pass_att"]), percent(a["pass_ok"], a["pass_att"])),
-        ("Possession share*", percent(h["possessions"], h["possessions"] + a["possessions"]), percent(a["possessions"], h["possessions"] + a["possessions"])),
-        ("Tackles won", f"{h['tackles_ok']}/{h['tackles']}", f"{a['tackles_ok']}/{a['tackles']}"),
-        ("Saves", h["saves"], a["saves"]),
-    ]
-    for label, home, away in stat_rows:
-        cols = st.columns([1, 1.6, 1])
-        cols[0].markdown(f"**{home}**")
-        cols[1].markdown(f"<div style='text-align:center;font-size:.88rem'>{label}</div>", unsafe_allow_html=True)
-        cols[2].markdown(f"<div style='text-align:right'><b>{away}</b></div>", unsafe_allow_html=True)
-    st.caption("*Possession share is based on possession changes, not elapsed seconds; this is a classroom proxy.")
+    st.markdown("#### 📊 LIVE STATISTICS")
+    rows=[("Shots",h["shots"],a["shots"]),("Goals",h["goals"],a["goals"]),
+          ("Shots on target",h["on_target"],a["on_target"]),("Expected goals",f"{h['xg']:.2f}",f"{a['xg']:.2f}"),
+          ("Pass accuracy",pct(h["passes_ok"],h["passes"]),pct(a["passes_ok"],a["passes"])),
+          ("Tackles won",f"{h['tackles_ok']}/{h['tackles']}",f"{a['tackles_ok']}/{a['tackles']}"),
+          ("Goalkeeper saves",h["saves"],a["saves"])]
+    for name,v1,v2 in rows:
+        s=st.columns([1,1.8,1]);s[0].markdown(f"**{v1}**");s[1].caption(name);s[2].markdown(f"**{v2}**")
     st.divider()
-    st.markdown("#### 🧠 MANAGER CONTROLS")
-    tactic_options = ["Balanced", "Possession", "Attacking", "Pressing"]
-    new_tactic = st.selectbox("Match tactic", tactic_options, index=tactic_options.index(g["tactic"]), disabled=g["finished"])
-    if new_tactic != g["tactic"] and not g["finished"]:
-        g["tactic"] = new_tactic
-        log_event(f"📋 Tactical adjustment: {new_tactic}.", "home", "Tactic", new_tactic)
-        st.rerun()
-    active = [p for p in team_players("home") if p["role"] != "GK"]
-    bench = [p for p in team_players("home", active=False) if p["role"] != "GK"]
-    with st.expander(f"🔁 Substitutions ({g['sub_count']}/5 used)"):
-        if not bench or g["sub_count"] >= 5:
-            st.write("No more available substitutions.")
-        else:
-            out = st.selectbox("Player off · fatigue", active, format_func=lambda p: f"{p['name']} ({p['role']}) — {p['stamina']:.0f}% stamina")
-            incoming = st.selectbox("Player on", bench, format_func=lambda p: f"{p['name']} ({p['role']}) — {p['stamina']:.0f}% stamina")
-            if st.button("Confirm substitution", disabled=g["finished"], use_container_width=True):
-                if make_sub(out["id"], incoming["id"]):
-                    st.rerun()
-    with st.expander("👥 Starting XI + stamina"):
-        for p in team_players("home"):
-            st.write(f"{p['name']} · {p['role']} · {p['stamina']:.0f}% energy")
-    st.caption(f"Formation: {g['formation']} · Decisions: {g['choices']}")
-
+    st.markdown("#### 🧠 MANAGER'S OFFICE")
+    new_tactic=st.selectbox("Team tactics",TACTICS,index=TACTICS.index(g["tactic"]),disabled=g["finished"])
+    if new_tactic!=g["tactic"] and not g["finished"]:
+        g["tactic"]=new_tactic;log(f"📋 Formation stays {g['formation']}, tactical approach changed to {new_tactic}.","Tactic",new_tactic);st.rerun()
+    starters=[p for p in active("home") if p["role"]!="GK"]
+    subs=[p for p in g["players"]["home"] if not p["on"] and p["role"]!="GK"]
+    with st.expander(f"🔁 Substitutions ({g['subs']}/3)"):
+        if subs and g["subs"]<3 and not g["finished"]:
+            outgoing=st.selectbox("Player to replace",starters,format_func=lambda p:f"{p['name']} · {p['role']} · {p['stamina']:.0f}% energy")
+            incoming=st.selectbox("Replacement",subs,format_func=lambda p:f"{p['name']} · {p['role']} · {p['stamina']:.0f}% energy")
+            if st.button("Make substitution",use_container_width=True):
+                if substitute(outgoing["id"],incoming["id"]):st.rerun()
+        else:st.write("No substitutions available.")
+    with st.expander("👥 Player scouting & fatigue"):
+        for p in active("home"):
+            st.caption(f"{p['name']} ({p['role']}) | Pass {p['passing']} | Shot {p['shooting']} | Defense {p['defense']} | Energy {p['stamina']:.0f}%")
+    st.caption(f"Formation: {g['formation']} · Decisions: {g['choices']} · Fatigue lowers skill effectiveness")
 if g["finished"]:
-    st.divider()
-    st.subheader("📝 FINAL MATCH REPORT — INVESTIGATE THE DATA")
-    st.write(f"**Actual score:** {h['goals']}–{a['goals']} | **Expected goals:** {h['xg']:.2f}–{a['xg']:.2f}")
-    st.write("**Think like a sports analyst:** Did the winning team create better chances, or simply convert more of them? What does the difference between xG and goals tell you about chance?")
-    st.write(f"**Your shooting conversion:** {percent(h['goals'], h['shots'])}  |  **Your pass completion:** {percent(h['pass_ok'], h['pass_att'])}  |  **Your tackle success:** {percent(h['tackles_ok'], h['tackles'])}")
-    st.download_button("⬇️ Download match event data (CSV)", data=csv_log(g["events"]), file_name="soccer_match_events.csv", mime="text/csv")
-    with st.expander("Math reflection prompts"):
-        st.markdown("1. Calculate goals ÷ shots × 100. How close was your conversion percentage to your total xG?\n\n2. Identify a low-probability decision that succeeded or a high-probability decision that failed.\n\n3. Was your team more accurate at passing or tackling? Show evidence.\n\n4. How did your tactics and substitutions change as the game progressed?")
-
-st.divider()
-with st.expander("ℹ️ How the probability engine works"):
-    st.write("The model uses fictional player ratings and fatigue to adjust the probability of each pass, defensive play, and shot. A random draw then decides whether the action succeeds. Shot probability represents a simplified xG estimate based on the danger zone, shooter skill, and goalkeeper skill. A 25% shot can still miss, and a 5% shot can still score. This is intentionally **not** an official xG model or verified real-world performance data.")
-    st.write("Gameplay moves 3–6 minutes per coaching decision, so one match fits into a class period. Computer opponents automatically pass or shoot and respond to the score. The visual pitch is schematic.")
-if st.button("🔄 New match", use_container_width=False):
-    del st.session_state.game
-    st.rerun()
+    st.divider();st.subheader("🏆 POSTMATCH DATA LAB")
+    st.write(f"Final: **{h['goals']}–{a['goals']}** | Expected goals: **{h['xg']:.2f}–{a['xg']:.2f}**")
+    st.write(f"Your shooting conversion: **{pct(h['goals'],h['shots'])}** | Passing: **{pct(h['passes_ok'],h['passes'])}** | Defending: **{pct(h['tackles_ok'],h['tackles'])}**")
+    st.download_button("⬇️ Download all match events (CSV)",events_csv(),"soccer_manager_v2_events.csv",mime="text/csv")
+    with st.expander("Student reflection questions"):
+        st.write("1. Did a lower-probability decision work out? Give evidence from the log.")
+        st.write("2. How did shot aim, shot power, and shot location affect predicted xG?")
+        st.write("3. Did your actual goal total exceed or fall below xG? Explain why both are possible.")
+        st.write("4. Did fatigue or substitutions change your strategy?")
+with st.expander("About the simulator"):
+    st.write("This is a classroom probability model using fictional ratings. The moving pitch is a tactical animation, not continuous independent player tracking. The displayed probabilities represent model estimates; a random draw determines success or failure. No actual football statistics feed the engine yet.")
+if st.button("🔄 Start another match"):
+    del st.session_state.game;st.rerun()
