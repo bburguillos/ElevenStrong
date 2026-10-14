@@ -2,12 +2,13 @@ import csv
 import io
 import math
 import random
+import time
 from html import escape
 
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Sports by the Numbers | Soccer Manager 2", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Sports by the Numbers | Soccer Manager 3", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
 st.markdown('''<style>
 .block-container{max-width:1420px;padding-top:.65rem;padding-bottom:1rem}
 h1{font-size:1.7rem!important;margin-bottom:0!important}
@@ -45,7 +46,7 @@ def create_game(home,away,formation,tactic):
     st.session_state.game=dict(clubs={"home":home,"away":away},players={"home":roster(home),"away":roster(away)},
       formation=formation,tactic=tactic,minute=0,ball="home",zone=1,lane="Center",stats={"home":stats(),"away":stats()},
       events=[],last="Kickoff! Study the defense and create your first attack.",finished=False,half=False,subs=0,choices=0,
-      danger_lane=random.choice(LANES),keeper_bias=random.choice(LANES),animation=None)
+      danger_lane=random.choice(LANES),keeper_bias=random.choice(LANES),animation=None,challenge=None,math_correct=0,math_total=0,math_times=[],math_last="")
     st.session_state.game["stats"]["home"]["possessions"]=1
 
 def active(side): return [p for p in st.session_state.game["players"][side] if p["on"]]
@@ -150,7 +151,7 @@ def computer_turn():
         turnover("home",1)
     return "pass"
 
-def act(action,lane,power):
+def act(action,lane,power,math_modifier=0):
     g=st.session_state.game
     if g["finished"]:return
     old=(g["ball"],g["zone"],g["lane"])
@@ -159,9 +160,10 @@ def act(action,lane,power):
     if g["ball"]=="home":
         if action=="Shoot":
             chance,_=shot_chance(lane,power)
+            chance=clamp(chance+math_modifier,.01,.85)
             result=shoot("home",chance,"Shot",lane)
         else:
-            chance=pass_chance(action,lane)
+            chance=clamp(pass_chance(action,lane)+math_modifier,.05,.99)
             g["stats"]["home"]["passes"]+=1
             if random.random()<chance:
                 g["stats"]["home"]["passes_ok"]+=1
@@ -174,7 +176,7 @@ def act(action,lane,power):
                 computer_turn()
                 result="turnover"
     else:
-        chance=defensive_chance(action,lane)
+        chance=clamp(defensive_chance(action,lane)+math_modifier,.05,.97)
         g["stats"]["home"]["tackles"]+=1
         if random.random()<chance:
             g["stats"]["home"]["tackles_ok"]+=1
@@ -188,6 +190,86 @@ def act(action,lane,power):
     elapse()
     trajectory(*old,g["ball"],g["zone"],g["lane"],result)
     g["keeper_bias"]=random.choices(LANES,weights=[4,3,4],k=1)[0]
+
+# One decision = one math challenge. Server timestamps determine the result (not the browser countdown).
+MATH_LEVELS={
+    "Safe pass": ("Rookie",18,.055,-.12),
+    "Contain": ("Rookie",18,.055,-.12),
+    "Press": ("Intermediate",13,.075,-.14),
+    "Cross": ("Intermediate",13,.085,-.14),
+    "Through ball": ("Expert",10,.12,-.17),
+    "Counter trap": ("Expert",10,.12,-.17),
+    "Shoot": ("Expert",10,.12,-.17),
+}
+
+def make_question(level):
+    if level=="Rookie":
+        op=random.choice(["+","-","×"])
+        if op=="+":
+            x,y=random.randint(3,25),random.randint(3,20);ans=x+y
+        elif op=="-":
+            x,y=sorted([random.randint(12,40),random.randint(2,12)],reverse=True);ans=x-y
+        else:
+            x,y=random.randint(2,9),random.randint(2,6);ans=x*y
+        return f"{x} {op} {y} = ?",ans
+    if level=="Intermediate":
+        op=random.choice(["×","÷","two-step"])
+        if op=="×":
+            x,y=random.randint(6,12),random.randint(5,12);return f"{x} × {y} = ?",x*y
+        if op=="÷":
+            x,y=random.randint(5,12),random.randint(3,12);return f"{x*y} ÷ {y} = ?",x
+        x,y,z=random.randint(3,12),random.randint(3,9),random.randint(4,25)
+        return f"({x} × {y}) + {z} = ?",x*y+z
+    op=random.choice(["two-step","division","percent","integers"])
+    if op=="two-step":
+        x,y,z=random.randint(7,15),random.randint(5,12),random.randint(11,29)
+        return f"({x} × {y}) − {z} = ?",x*y-z
+    if op=="division":
+        x,y,z=random.randint(7,18),random.randint(4,12),random.randint(3,17)
+        return f"({x*y} ÷ {y}) + {z} = ?",x+z
+    if op=="percent":
+        pct=random.choice([10,20,25,50]);total=random.choice([40,60,80,100,120,200])
+        return f"What is {pct}% of {total}?",pct*total//100
+    x,y=random.randint(-15,-3),random.randint(6,21)
+    return f"{x} + {y} = ?",x+y
+
+def begin_challenge(action,lane,power):
+    g=st.session_state.game
+    if g["finished"] or g.get("challenge") is not None:return
+    level,seconds,bonus,penalty=MATH_LEVELS[action]
+    question,answer=make_question(level)
+    g["challenge"]=dict(action=action,lane=lane,power=power,level=level,seconds=seconds,
+      bonus=bonus,penalty=penalty,question=question,answer=answer,started=time.time(),token=random.randint(100000,999999))
+
+def submit_challenge(text):
+    g=st.session_state.game
+    c=g.get("challenge")
+    if not c or g["finished"]:return
+    elapsed=time.time()-c["started"]
+    try:correct=(float(text.strip())==c["answer"])
+    except (ValueError,AttributeError):correct=False
+    within=elapsed<=c["seconds"]
+    won=correct and within
+    # Quick accurate answers earn the full reward, slower accurate answers get a smaller boost.
+    speed=clamp((c["seconds"]-elapsed)/c["seconds"],0,1)
+    modifier=(c["bonus"]*(.65+.35*speed)) if won else c["penalty"]
+    g["math_total"]+=1
+    if won:g["math_correct"]+=1;g["math_times"].append(round(elapsed,1))
+    outcome=(f"✅ Correct in {elapsed:.1f}s — success chance boosted by {modifier:+.1%}." if won else
+             f"{'⌛ Time expired' if not within else '❌ Incorrect'} — correct answer: {c['answer']}. Chance adjusted by {modifier:+.1%}.")
+    g["math_last"]=outcome
+    action,lane,power=c["action"],c["lane"],c["power"]
+    g["challenge"]=None
+    act(action,lane,power,modifier)
+
+def countdown_html(deadline):
+    left=max(0,deadline-time.time())
+    return f'''<!doctype html><html><body style="margin:0;background:#132d39;color:#fff;font-family:Arial,sans-serif">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 14px;border-radius:10px">
+    <b>⏱ ANSWER BEFORE THE WHISTLE</b><strong id="sec" style="font-size:29px;color:#ffce5b">{left:.1f}s</strong></div>
+    <script>const deadline=Date.now()+{int(left*1000)};setInterval(()=>{{let x=Math.max(0,(deadline-Date.now())/1000);
+    document.getElementById('sec').textContent=x.toFixed(1)+'s';document.getElementById('sec').style.color=x<4?'#ff6b6b':'#ffce5b';}},100);</script>
+    </body></html>'''
 
 def substitute(off_id,on_id):
     g=st.session_state.game
@@ -262,7 +344,7 @@ def events_csv():
     w=csv.DictWriter(o,fieldnames=cols);w.writeheader();w.writerows(st.session_state.game["events"])
     return o.getvalue()
 
-st.title("⚽ SPORTS BY THE NUMBERS  |  SOCCER MANAGER 2")
+st.title("⚽ SPORTS BY THE NUMBERS  |  SOCCER MANAGER 3")
 st.caption("Move the ball. Read the channels. Outsmart the goalkeeper. Make probability-based decisions.")
 if "game" not in st.session_state:
     st.markdown("### 🏟️ Set up your match")
@@ -285,9 +367,24 @@ top[3].metric("TIME",f"{g['minute']}'")
 left,right=st.columns([1.85,1],gap="large")
 with left:
     components.html(pitch_html(),height=355,scrolling=False)
+    st.markdown(f"<div class='commentary'><b>🎙️ LIVE MATCH CALL:</b> {escape(g['last'])}</div>",unsafe_allow_html=True)
+    if g.get("math_last"):
+        st.info(g["math_last"])
     st.caption("Players run to new positions after each decision. Numbered yellow/white markers are players; the black-and-white football is the ball. You attack right.")
     if g["finished"]:
         st.success(f"🏁 FULL TIME — {g['clubs']['home']} {h['goals']}–{a['goals']} {g['clubs']['away']}")
+    elif g.get("challenge"):
+        c=g["challenge"]
+        st.markdown(f"### 🧠 {c['level'].upper()} CHALLENGE — {c['action']}")
+        st.write(f"Complete the math fact to attempt **{c['action']}** down the **{c['lane']}** channel.")
+        components.html(countdown_html(c["started"]+c["seconds"]),height=74,scrolling=False)
+        with st.form(key=f"math_{c['token']}",clear_on_submit=False):
+            answer=st.text_input(f"{c['question']}",placeholder="Type your answer",key=f"answer_{c['token']}")
+            submitted=st.form_submit_button("⚽ SUBMIT & PLAY",type="primary",use_container_width=True)
+        if submitted:
+            submit_challenge(answer)
+            st.rerun()
+        st.caption("The timer is checked when you submit. An incorrect or late answer reduces your chance of success, but play continues.")
     else:
         if g["ball"]=="home":
             st.markdown(f"<div class='playbox'><b>🟡 IN POSSESSION</b> • Zone {g['zone']}/3 • Ball in the {g['lane']} channel</div>",unsafe_allow_html=True)
@@ -295,28 +392,30 @@ with left:
             lane=st.radio("Attack down which channel?",LANES,index=LANES.index(g["lane"]),horizontal=True)
             power=st.slider("Shot power (aim for the sweet spot for this distance)",35,100,70,5)
             desired={1:90,2:77,3:61}[g["zone"]]
-            st.caption(f"Coaching clue: From zone {g['zone']}, around **{desired}% power** provides the best accuracy. Different aim and power decisions change shot xG.")
+            st.caption(f"Coaching clue: From zone {g['zone']}, around **{desired}% power** provides the best accuracy.")
             options=["Safe pass","Through ball","Cross","Shoot"]
             probs={o:(shot_chance(lane,power)[0] if o=="Shoot" else pass_chance(o,lane)) for o in options}
             cols=st.columns(4)
             for i,o in enumerate(options):
-                if cols[i].button(f"{o} · {probs[o]:.0%}",key="play_"+o,type="primary" if o=="Shoot" else "secondary",use_container_width=True):
-                    act(o,lane,power);st.rerun()
+                level,seconds,bonus,penalty=MATH_LEVELS[o]
+                if cols[i].button(f"{o} · {probs[o]:.0%}\n{level} · {seconds}s",key="play_"+o,type="primary" if o=="Shoot" else "secondary",use_container_width=True):
+                    begin_challenge(o,lane,power);st.rerun()
         else:
             st.markdown(f"<div class='playbox'><b>⚪ DEFEND!</b> • Opposition danger zone {g['zone']}/3</div>",unsafe_allow_html=True)
-            st.markdown(f"<div class='scout'>📋 <b>Analyst warning:</b> Their most likely attacking channel is <b>{g['danger_lane']}</b>. Anticipate the passing lane and choose your defensive approach.</div>",unsafe_allow_html=True)
+            st.markdown(f"<div class='scout'>📋 <b>Analyst warning:</b> Their most likely attacking channel is <b>{g['danger_lane']}</b>.</div>",unsafe_allow_html=True)
             lane=st.radio("Cover which channel?",LANES,index=LANES.index(g["danger_lane"]),horizontal=True)
             options=["Press","Contain","Counter trap"]
             cols=st.columns(3)
             for i,o in enumerate(options):
                 p=defensive_chance(o,lane)
-                if cols[i].button(f"{o} · {p:.0%}",key="def_"+o,use_container_width=True):
-                    act(o,lane,70);st.rerun()
-    st.markdown(f"<div class='commentary'><b>🎙️ MATCH CALL:</b> {escape(g['last'])}</div>",unsafe_allow_html=True)
+                level,seconds,bonus,penalty=MATH_LEVELS[o]
+                if cols[i].button(f"{o} · {p:.0%}\n{level} · {seconds}s",key="def_"+o,use_container_width=True):
+                    begin_challenge(o,lane,70);st.rerun()
     with st.expander("📻 Play-by-play",expanded=False):
         for e in reversed(g["events"][-20:]):st.write(f"{e['minute']}' • {e['commentary']}")
 with right:
     st.markdown("#### 📊 LIVE STATISTICS")
+    st.metric("Math challenges won",f"{g['math_correct']}/{g['math_total']}")
     rows=[("Shots",h["shots"],a["shots"]),("Goals",h["goals"],a["goals"]),
           ("Shots on target",h["on_target"],a["on_target"]),("Expected goals",f"{h['xg']:.2f}",f"{a['xg']:.2f}"),
           ("Pass accuracy",pct(h["passes_ok"],h["passes"]),pct(a["passes_ok"],a["passes"])),
@@ -345,6 +444,7 @@ with right:
 if g["finished"]:
     st.divider();st.subheader("🏆 POSTMATCH DATA LAB")
     st.write(f"Final: **{h['goals']}–{a['goals']}** | Expected goals: **{h['xg']:.2f}–{a['xg']:.2f}**")
+    st.write(f"Math success: **{g['math_correct']}/{g['math_total']}** challenges. Average correct-response time: **{sum(g['math_times'])/len(g['math_times']):.1f}s**" if g["math_times"] else "No timed math challenges completed correctly.")
     st.write(f"Your shooting conversion: **{pct(h['goals'],h['shots'])}** | Passing: **{pct(h['passes_ok'],h['passes'])}** | Defending: **{pct(h['tackles_ok'],h['tackles'])}**")
     st.download_button("⬇️ Download all match events (CSV)",events_csv(),"soccer_manager_v2_events.csv",mime="text/csv")
     with st.expander("Student reflection questions"):
@@ -353,6 +453,6 @@ if g["finished"]:
         st.write("3. Did your actual goal total exceed or fall below xG? Explain why both are possible.")
         st.write("4. Did fatigue or substitutions change your strategy?")
 with st.expander("About the simulator"):
-    st.write("This is a classroom probability model using fictional ratings. The moving pitch is a tactical animation, not continuous independent player tracking. The displayed probabilities represent model estimates; a random draw determines success or failure. No actual football statistics feed the engine yet.")
+    st.write("This is a classroom probability model using fictional ratings. The moving pitch is a tactical animation, not continuous independent player tracking. The displayed probabilities represent pre-math model estimates; the answer accuracy and speed change those chances before a random draw determines success or failure. No actual football statistics feed the engine yet.")
 if st.button("🔄 Start another match"):
     del st.session_state.game;st.rerun()
