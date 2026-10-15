@@ -8,24 +8,42 @@ from html import escape
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Sports by the Numbers | Soccer Manager 4", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Sports by the Numbers | Soccer Manager 5", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
 st.markdown('''<style>
-.block-container{max-width:1420px;padding-top:.65rem;padding-bottom:1rem}
-h1{font-size:1.7rem!important;margin-bottom:0!important}
-[data-testid="stMetric"]{background:#123c33;border:1px solid #27745d;border-radius:12px;padding:8px 12px}
-[data-testid="stMetricLabel"],[data-testid="stMetricValue"]{color:white!important}
-div.stButton>button{min-height:2.8rem;font-weight:700}
-.playbox{background:#10372c;border-radius:13px;color:#e6fff1;padding:.7rem 1rem;margin:.45rem 0}
-.scout{background:#e7f2ec;color:#163d30;border-radius:12px;padding:.65rem .85rem;margin:.4rem 0}
-.commentary{background:#142e3b;color:#f5fbff;border-left:4px solid #ffcb57;padding:.7rem .85rem;border-radius:8px;margin-top:.5rem}
+.block-container {max-width:1120px;padding-top:.45rem;padding-bottom:1rem}
+header[data-testid="stHeader"]{height:2.2rem}
+h1{font-size:1.55rem!important;margin:.1rem 0!important}
+[data-testid="stVerticalBlock"]{gap:.65rem}
+div.stButton>button{min-height:4rem;font-size:1.15rem;font-weight:800;border-radius:13px}
+[data-testid="stTextInput"] input{font-size:1.55rem;min-height:3.5rem}
+[data-testid="stFormSubmitButton"] button{min-height:4rem;font-size:1.2rem}
+.livecall{background:#142f3c;color:#fff;border-radius:12px;padding:13px 17px;font-size:1.12rem;font-weight:650}
+.resultcall{background:#eaf6ee;color:#173a29;border-radius:10px;padding:10px 15px;font-size:1rem}
+.mathstage{background:#142f3c;color:#fff;padding:18px 22px;border-radius:16px}
+.scorecard{background:#112d37;color:white;border-radius:16px;padding:12px 22px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.scorecard .club{font-weight:900;font-size:clamp(1rem,2.3vw,1.45rem);width:33%}
+.scorecard .score{font-size:clamp(2rem,5vw,3.2rem);font-weight:950;white-space:nowrap}
+.scorecard .minute{font-size:1rem;color:#f6d16b;text-align:center}
+[data-testid="stCaptionContainer"]{font-size:.9rem}
 </style>''', unsafe_allow_html=True)
 
+# Named-player snapshots for a classroom simulation (not live rosters or official ratings).
+# Lists contain one goalkeeper, four defenders, three midfielders, three forwards, then three reserves.
 NAMES = {
-    "Harbor City FC": ["M. Vega", "A. Okafor", "J. Park", "D. Silva", "E. Brooks", "K. Moreno", "L. Russo", "N. Price", "S. Diallo", "T. Chen", "R. Hayes", "I. Costa", "P. Reed", "F. Ibrahim"],
-    "Mountain United": ["B. Novak", "O. Mensah", "C. Santos", "Y. Ito", "V. Morgan", "H. Rahman", "Z. Baker", "W. Cole", "G. Alvarez", "Q. Patel", "U. Fischer", "A. Wolfe", "D. Cruz", "M. Ali"],
-    "Riverdale Rovers": ["P. Grant", "R. Kim", "F. Torres", "J. Hart", "N. Evans", "C. Adeyemi", "E. Roy", "K. Shah", "L. Flores", "T. Beck", "S. Malik", "W. Barnes", "I. Lin", "D. Young"],
-    "Metro Athletic": ["D. Knight", "A. Bell", "S. Romero", "K. Soto", "J. Silva", "P. Fox", "R. Mason", "Y. Idris", "O. Lane", "B. Cruz", "T. Wells", "M. King", "N. Ford", "F. Diaz"],
+    "Arsenal": ["David Raya","William Saliba","Gabriel Magalhães","Jurrien Timber","Riccardo Calafiori","Declan Rice","Martin Ødegaard","Mikel Merino","Bukayo Saka","Kai Havertz","Gabriel Martinelli","Ben White","Ethan Nwaneri","Leandro Trossard"],
+    "Real Madrid": ["Thibaut Courtois","Antonio Rüdiger","Éder Militão","Dean Huijsen","Trent Alexander-Arnold","Jude Bellingham","Federico Valverde","Aurélien Tchouaméni","Kylian Mbappé","Vinícius Júnior","Rodrygo","Dani Carvajal","Arda Güler","Endrick"],
+    "Barcelona": ["Joan García","Jules Koundé","Pau Cubarsí","Alejandro Balde","Ronald Araújo","Pedri","Gavi","Frenkie de Jong","Lamine Yamal","Raphinha","Robert Lewandowski","Eric García","Dani Olmo","Ferran Torres"],
+    "Liverpool": ["Alisson Becker","Virgil van Dijk","Ibrahima Konaté","Joe Gomez","Andy Robertson","Alexis Mac Allister","Dominik Szoboszlai","Ryan Gravenberch","Mohamed Salah","Cody Gakpo","Hugo Ekitiké","Conor Bradley","Curtis Jones","Federico Chiesa"],
+    "Manchester City": ["Gianluigi Donnarumma","Rúben Dias","Joško Gvardiol","John Stones","Rico Lewis","Rodri","Bernardo Silva","Phil Foden","Erling Haaland","Jérémy Doku","Omar Marmoush","Nathan Aké","Mateo Kovačić","Savinho"],
+    "Bayern Munich": ["Manuel Neuer","Dayot Upamecano","Jonathan Tah","Alphonso Davies","Konrad Laimer","Joshua Kimmich","Leon Goretzka","Jamal Musiala","Harry Kane","Michael Olise","Luis Díaz","Kim Min-jae","Aleksandar Pavlović","Serge Gnabry"],
+    "Paris Saint-Germain": ["Gianluigi Donnarumma","Achraf Hakimi","Marquinhos","Willian Pacho","Nuno Mendes","Vitinha","João Neves","Fabián Ruiz","Ousmane Dembélé","Khvicha Kvaratskhelia","Désiré Doué","Lucas Hernández","Warren Zaïre-Emery","Bradley Barcola"],
+    "Inter Miami": ["Óscar Ustari","Jordi Alba","Maximiliano Falcón","Tomás Avilés","Ian Fray","Sergio Busquets","Rodrigo De Paul","Federico Redondo","Lionel Messi","Luis Suárez","Tadeo Allende","Noah Allen","Benjamin Cremaschi","Telasco Segovia"],
 }
+TEAM_COLORS={
+    "Arsenal":"#ed3a3a","Real Madrid":"#d2caff","Barcelona":"#b93e72",
+    "Liverpool":"#ee4747","Manchester City":"#88d6f7","Bayern Munich":"#f06a70",
+    "Paris Saint-Germain":"#3760b5","Inter Miami":"#ff9cc5"}
+
 ROLES = ["GK", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "FWD", "FWD", "FWD", "DEF", "MID", "FWD"]
 LANES = ["Left", "Center", "Right"]
 TACTICS = ["Balanced", "Possession", "Attacking", "Pressing"]
@@ -351,7 +369,7 @@ def pitch_html():
     <rect x="14" y="173" width="16" height="75" rx="2" fill="#e8f5ff" fill-opacity=".42" stroke="white" stroke-width="3"/>
     <rect x="930" y="173" width="16" height="75" rx="2" fill="#e8f5ff" fill-opacity=".42" stroke="white" stroke-width="3"/>''']
     # Animate runners by a slight run-in from prior positions; each action induces a new animation.
-    for side,poses,color in [("home",homepos,"#ffcb47"),("away",awaypos,"#d6eaff")]:
+    for side,poses,color in [("home",homepos,TEAM_COLORS[g["clubs"]["home"]]),("away",awaypos,TEAM_COLORS[g["clubs"]["away"]])]:
         for j,(x,y) in enumerate(poses):
             delta=shift*(1 if side=="home" else .6)
             x=clamp(x+delta,43,916)
@@ -369,7 +387,7 @@ def pitch_html():
       <animateTransform attributeName="transform" type="translate" from="{x0} {y0}" to="{x1} {y1}" dur="1.1s" fill="freeze" begin=".2s"/>
       </g>''')
     # football_svg uses its own nested transform (0,0); ball is always independently visible.
-    svg.append(f'''<text x="480" y="18" text-anchor="middle" fill="#e7ffe9" font-weight="bold" font-family="Arial" font-size="15">{escape(g['clubs']['home'])}  •  ATTACK →</text>''')
+
     svg.append('</svg>')
     return '''<!doctype html><html><body style="margin:0;background:#103b2d"><div style="width:100%;overflow:hidden">'''+''.join(svg)+'''</div></body></html>'''
 
@@ -379,120 +397,84 @@ def events_csv():
     w=csv.DictWriter(o,fieldnames=cols);w.writeheader();w.writerows(st.session_state.game["events"])
     return o.getvalue()
 
-st.title("⚽ SPORTS BY THE NUMBERS  |  SOCCER MANAGER 4")
-st.caption("Move the ball, outsmart the goalkeeper, and apply Grades 5–7 mathematics under match pressure.")
+st.title("⚽ SPORTS BY THE NUMBERS · SOCCER")
 if "game" not in st.session_state:
-    st.markdown("### 🏟️ Set up your match")
-    a,b,c,d=st.columns(4)
-    home=a.selectbox("Your club",list(NAMES))
-    away=b.selectbox("Opponent",[x for x in NAMES if x!=home])
-    formation=c.selectbox("Formation",["4-3-3","4-4-2","3-5-2"])
-    tactic=d.selectbox("Tactic",TACTICS)
-    math_mode=st.selectbox("📚 Math curriculum",MATH_MODES,help="Mixed review combines Grades 5, 6, and 7. Riskier soccer plays still have less time and larger consequences.")
-    st.info("Fictional player ratings for classroom play. The probabilities are modeled, not real-world measurements. The moving pitch is an animated tactical visualization, not a full physics engine.")
+    st.subheader("🏟️ Choose your match")
+    x,y=st.columns(2)
+    home=x.selectbox("YOUR CLUB",list(NAMES))
+    away=y.selectbox("OPPONENT",[c for c in NAMES if c!=home])
+    math_mode=st.selectbox("MATH LEVEL",MATH_MODES)
+    st.caption("Real club and player names, fictional gameplay ratings. Player lists are illustrative historical snapshots, not guaranteed current transfers or lineups.")
     if st.button("⚽ KICK OFF",type="primary",use_container_width=True):
-        create_game(home,away,formation,tactic,math_mode);st.rerun()
+        create_game(home,away,"4-3-3","Balanced",math_mode)
+        st.rerun()
     st.stop()
+
 g=st.session_state.game
 h,a=g["stats"]["home"],g["stats"]["away"]
-top=st.columns([2,1.3,2,1])
-top[0].markdown(f"### 🟡 {g['clubs']['home']}")
-top[1].metric("SCORE",f"{h['goals']} – {a['goals']}")
-top[2].markdown(f"### ⚪ {g['clubs']['away']}")
-top[3].metric("TIME",f"{g['minute']}'")
-left,right=st.columns([1.85,1],gap="large")
-with left:
-    components.html(pitch_html(),height=355,scrolling=False)
-    st.markdown(f"<div class='commentary'><b>🎙️ LIVE MATCH CALL:</b> {escape(g['last'])}</div>",unsafe_allow_html=True)
-    if g.get("math_last"):
-        st.info(g["math_last"])
-    st.caption("Players run to new positions after each decision. Numbered yellow/white markers are players; the black-and-white football is the ball. You attack right.")
-    if g["finished"]:
-        st.success(f"🏁 FULL TIME — {g['clubs']['home']} {h['goals']}–{a['goals']} {g['clubs']['away']}")
-    elif g.get("challenge"):
-        c=g["challenge"]
-        st.markdown(f"### 🧠 GRADE {c['grade']} · {c['strand']} — {c['action']}")
-        st.caption(f"NJSLS-M {c['standard']} · Soccer risk: {c['level']} · Time limit: {c['seconds']} seconds")
-        st.write(f"Complete the math fact to attempt **{c['action']}** down the **{c['lane']}** channel.")
-        components.html(countdown_html(c["started"]+c["seconds"]),height=74,scrolling=False)
-        with st.form(key=f"math_{c['token']}",clear_on_submit=False):
-            answer=st.text_input(f"{c['question']}",placeholder="Type your answer",key=f"answer_{c['token']}")
-            submitted=st.form_submit_button("⚽ SUBMIT & PLAY",type="primary",use_container_width=True)
-        if submitted:
-            submit_challenge(answer)
-            st.rerun()
-        st.caption("The timer is checked when you submit. An incorrect or late answer reduces your chance of success, but play continues.")
-    else:
-        if g["ball"]=="home":
-            st.markdown(f"<div class='playbox'><b>🟡 IN POSSESSION</b> • Zone {g['zone']}/3 • Ball in the {g['lane']} channel</div>",unsafe_allow_html=True)
-            st.markdown(f"<div class='scout'>🔎 <b>Scouting:</b> Opponent's strongest defensive coverage: <b>{g['danger_lane']}</b>. Goalkeeper tends to protect: <b>{g['keeper_bias']}</b>. Choose where to attack.</div>",unsafe_allow_html=True)
-            lane=st.radio("Attack down which channel?",LANES,index=LANES.index(g["lane"]),horizontal=True)
-            power=st.slider("Shot power (aim for the sweet spot for this distance)",35,100,70,5)
-            desired={1:90,2:77,3:61}[g["zone"]]
-            st.caption(f"Coaching clue: From zone {g['zone']}, around **{desired}% power** provides the best accuracy.")
-            options=["Safe pass","Through ball","Cross","Shoot"]
-            probs={o:(shot_chance(lane,power)[0] if o=="Shoot" else pass_chance(o,lane)) for o in options}
-            cols=st.columns(4)
-            for i,o in enumerate(options):
-                level,seconds,bonus,penalty=MATH_LEVELS[o]
-                if cols[i].button(f"{o} · {probs[o]:.0%}\n{level} · {seconds}s",key="play_"+o,type="primary" if o=="Shoot" else "secondary",use_container_width=True):
-                    begin_challenge(o,lane,power);st.rerun()
-        else:
-            st.markdown(f"<div class='playbox'><b>⚪ DEFEND!</b> • Opposition danger zone {g['zone']}/3</div>",unsafe_allow_html=True)
-            st.markdown(f"<div class='scout'>📋 <b>Analyst warning:</b> Their most likely attacking channel is <b>{g['danger_lane']}</b>.</div>",unsafe_allow_html=True)
-            lane=st.radio("Cover which channel?",LANES,index=LANES.index(g["danger_lane"]),horizontal=True)
-            options=["Press","Contain","Counter trap"]
-            cols=st.columns(3)
-            for i,o in enumerate(options):
-                p=defensive_chance(o,lane)
-                level,seconds,bonus,penalty=MATH_LEVELS[o]
-                if cols[i].button(f"{o} · {p:.0%}\n{level} · {seconds}s",key="def_"+o,use_container_width=True):
-                    begin_challenge(o,lane,70);st.rerun()
-    with st.expander("📻 Play-by-play",expanded=False):
-        for e in reversed(g["events"][-20:]):st.write(f"{e['minute']}' • {e['commentary']}")
-with right:
-    st.markdown("#### 📊 LIVE STATISTICS")
-    st.metric("Math challenges won",f"{g['math_correct']}/{g['math_total']}")
-    rows=[("Shots",h["shots"],a["shots"]),("Goals",h["goals"],a["goals"]),
-          ("Shots on target",h["on_target"],a["on_target"]),("Expected goals",f"{h['xg']:.2f}",f"{a['xg']:.2f}"),
-          ("Pass accuracy",pct(h["passes_ok"],h["passes"]),pct(a["passes_ok"],a["passes"])),
-          ("Tackles won",f"{h['tackles_ok']}/{h['tackles']}",f"{a['tackles_ok']}/{a['tackles']}"),
-          ("Goalkeeper saves",h["saves"],a["saves"])]
-    for name,v1,v2 in rows:
-        s=st.columns([1,1.8,1]);s[0].markdown(f"**{v1}**");s[1].caption(name);s[2].markdown(f"**{v2}**")
-    st.divider()
-    st.markdown("#### 🧠 MANAGER'S OFFICE")
-    new_tactic=st.selectbox("Team tactics",TACTICS,index=TACTICS.index(g["tactic"]),disabled=g["finished"])
-    if new_tactic!=g["tactic"] and not g["finished"]:
-        g["tactic"]=new_tactic;log(f"📋 Formation stays {g['formation']}, tactical approach changed to {new_tactic}.","Tactic",new_tactic);st.rerun()
-    starters=[p for p in active("home") if p["role"]!="GK"]
-    subs=[p for p in g["players"]["home"] if not p["on"] and p["role"]!="GK"]
-    with st.expander(f"🔁 Substitutions ({g['subs']}/3)"):
-        if subs and g["subs"]<3 and not g["finished"]:
-            outgoing=st.selectbox("Player to replace",starters,format_func=lambda p:f"{p['name']} · {p['role']} · {p['stamina']:.0f}% energy")
-            incoming=st.selectbox("Replacement",subs,format_func=lambda p:f"{p['name']} · {p['role']} · {p['stamina']:.0f}% energy")
-            if st.button("Make substitution",use_container_width=True):
-                if substitute(outgoing["id"],incoming["id"]):st.rerun()
-        else:st.write("No substitutions available.")
-    with st.expander("👥 Player scouting & fatigue"):
-        for p in active("home"):
-            st.caption(f"{p['name']} ({p['role']}) | Pass {p['passing']} | Shot {p['shooting']} | Defense {p['defense']} | Energy {p['stamina']:.0f}%")
-    st.caption(f"Formation: {g['formation']} · Decisions: {g['choices']} · Fatigue lowers skill effectiveness")
+score=(f'<div class="scorecard"><div class="club" style="color:{TEAM_COLORS[g["clubs"]["home"]]}">{escape(g["clubs"]["home"])}</div>'
+       f'<div style="text-align:center"><div class="score">{h["goals"]} – {a["goals"]}</div><div class="minute">{g["minute"]} min · {"FULL TIME" if g["finished"] else "LIVE MATCH"}</div></div>'
+       f'<div class="club" style="text-align:right;color:{TEAM_COLORS[g["clubs"]["away"]]}">{escape(g["clubs"]["away"])}</div></div>')
+st.markdown(score,unsafe_allow_html=True)
+components.html(pitch_html(),height=465,scrolling=False)
+st.markdown(f'<div class="livecall">🎙️ {escape(g["last"])}</div>',unsafe_allow_html=True)
+if g.get("math_last"):
+    st.markdown(f'<div class="resultcall">{escape(g["math_last"].split("  |  ")[0])}</div>',unsafe_allow_html=True)
+
 if g["finished"]:
-    st.divider();st.subheader("🏆 POSTMATCH DATA LAB")
-    st.write(f"Final: **{h['goals']}–{a['goals']}** | Expected goals: **{h['xg']:.2f}–{a['xg']:.2f}**")
-    st.write(f"Math success: **{g['math_correct']}/{g['math_total']}** challenges. Average correct-response time: **{sum(g['math_times'])/len(g['math_times']):.1f}s**" if g["math_times"] else "No timed math challenges completed correctly.")
-    st.markdown("#### 📚 Grade-level review results")
-    for grade,results in g["math_by_grade"].items():
-        st.write(f"Grade {grade}: **{results['correct']}/{results['total']}** correct within the time limit")
-    st.write(f"Your shooting conversion: **{pct(h['goals'],h['shots'])}** | Passing: **{pct(h['passes_ok'],h['passes'])}** | Defending: **{pct(h['tackles_ok'],h['tackles'])}**")
-    st.download_button("⬇️ Download all match events (CSV)",events_csv(),"soccer_manager_v4_events.csv",mime="text/csv")
-    with st.expander("Student reflection questions"):
-        st.write("1. Did a lower-probability decision work out? Give evidence from the log.")
-        st.write("2. How did shot aim, shot power, and shot location affect predicted xG?")
-        st.write("3. Did your actual goal total exceed or fall below xG? Explain why both are possible.")
-        st.write("4. Did fatigue or substitutions change your strategy?")
-with st.expander("About the simulator"):
-    st.write("This is a classroom probability model using fictional ratings. The moving pitch is a tactical animation, not continuous independent player tracking. The displayed probabilities represent pre-math model estimates; the answer accuracy and speed change those chances before a random draw determines success or failure. No actual football statistics feed the engine yet.")
-if st.button("🔄 Start another match"):
+    st.success("🏁 FULL TIME! Open the Match Report for the data.")
+elif g.get("challenge"):
+    c=g["challenge"]
+    st.markdown(f'### 🧠 {c["action"].upper()} · Grade {c["grade"]} math')
+    st.markdown(f'**{c["question"]}**')
+    st.caption(f'{c["standard"]} · {c["seconds"]} seconds · {c["level"]} risk')
+    components.html(countdown_html(c["started"]+c["seconds"]),height=74,scrolling=False)
+    with st.form(key=f'math_{c["token"]}'):
+        answer=st.text_input('YOUR ANSWER',placeholder='Type a number',key=f'answer_{c["token"]}')
+        submit=st.form_submit_button('⚽ SUBMIT & PLAY',type='primary',use_container_width=True)
+    if submit:
+        submit_challenge(answer);st.rerun()
+else:
+    st.markdown('### ' + ('⚡ YOUR MOVE' if g["ball"]=="home" else '🛡️ DEFEND'))
+    # Only one compact choice of direction. Tactical options are intentionally removed.
+    lane=st.segmented_control('PLAY DIRECTION',LANES,default=g["lane"],key=f'lane_{g["choices"]}')
+    lane=lane or 'Center'
+    if g["ball"]=="home":
+        st.caption('Low risk = more time. High risk = bigger reward and a tougher math question.')
+        actions=[('Safe pass','🟢 SAFE PASS'),('Through ball','⚡ ATTACK'),('Cross','↗️ CROSS'),('Shoot','🥅 SHOOT')]
+    else:
+        st.caption('Stop their attack with a math challenge. Choose how aggressively to defend.')
+        actions=[('Contain','🟢 CONTAIN'),('Press','🛡️ PRESS'),('Counter trap','⚡ COUNTER')]
+    columns=st.columns(len(actions))
+    for col,(action,label) in zip(columns,actions):
+        if col.button(label,key=f'v5_{g["choices"]}_{action}',use_container_width=True,type='primary' if action in ('Shoot','Counter trap') else 'secondary'):
+            begin_challenge(action,lane,70);st.rerun()
+
+with st.expander('📊 Match report, players & teacher details',expanded=g["finished"]):
+    col1,col2,col3,col4=st.columns(4)
+    col1.metric('Shots',f'{h["shots"]} – {a["shots"]}')
+    col2.metric('xG',f'{h["xg"]:.2f} – {a["xg"]:.2f}')
+    col3.metric('Passing',pct(h['passes_ok'],h['passes']))
+    col4.metric('Math solved',f'{g["math_correct"]}/{g["math_total"]}')
+    for grade,results in g['math_by_grade'].items():
+        st.write(f'**Grade {grade}:** {results["correct"]}/{results["total"]} correct on time')
+    st.markdown('**Players on the field**')
+    for team in ['home','away']:
+        st.caption(g['clubs'][team]+': '+', '.join(p['name'] for p in active(team)))
+    if not g['finished']:
+        with st.expander(f'Optional substitutions ({g["subs"]}/3)'):
+            starters=[p for p in active('home') if p['role']!='GK']
+            bench=[p for p in g['players']['home'] if not p['on'] and p['role']!='GK']
+            if g['subs']<3 and bench:
+                out=st.selectbox('Replace',starters,format_func=lambda p:f'{p["name"]} ({p["stamina"]:.0f}% stamina)')
+                incoming=st.selectbox('Bring on',bench,format_func=lambda p:p['name'])
+                if st.button('Make substitution'):
+                    substitute(out['id'],incoming['id']);st.rerun()
+    with st.expander('Full play-by-play'):
+        for e in reversed(g['events'][-35:]): st.write(f"{e['minute']} min · {e['commentary']}")
+    if g['finished']:
+        st.download_button('⬇️ Export event log (CSV)',events_csv(),'soccer_v5_events.csv',mime='text/csv')
+        st.write('**Student reflection:** Did the team outperform its expected goals? Which math strands were hardest?')
+    st.caption('Game ratings and success percentages are fictional estimates. Player names are recognizable club snapshots, not a live transfer database or licensed product.')
+if st.button('🔄 New match'):
     del st.session_state.game;st.rerun()
